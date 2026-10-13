@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1791734076,
+        "narHash": "sha256-i5qk1kLiit98rRbh1AXmWBNT9QXC/y4l5Wk/u5EdpDQ=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "7fd4004d0511991fff3a0524856a9be09e28c5f0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "radiance-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791798374,
+        "narHash": "sha256-wB+Xyv+RFaEGu8qDT3w4XHDnEyBkjR+54gYaXAFcdLI=",
+        "rev": "dc339b4cd239f7124700dd1f52213f73e8939a14",
+        "type": "tarball",
+        "url": "https://codeberg.org/api/v1/repos/StillDeadcode/radiance/archive/dc339b4cd239f7124700dd1f52213f73e8939a14.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://codeberg.org/StillDeadcode/radiance/archive/dc339b4cd2.tar.gz"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "radiance-src": "radiance-src",
+        "therock-sdk": "therock-sdk"
+      }
+    },
+    "therock-sdk": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791475071,
+        "narHash": "sha256-bJlR/zOcncvylCrzcX3krFa3T1Cby4kmA7d7nNVx/Wk=",
+        "owner": "ewtodd",
+        "repo": "therock-sdk-nix",
+        "rev": "b11e0906c272f12f15c51933daa33c1627401001",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ewtodd",
+        "repo": "therock-sdk-nix",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
