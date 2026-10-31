@@ -27,7 +27,9 @@ Radiance is licensed under the Apache License 2.0.
 
 Upstream ships Radiance as a container. This flake builds it from source, with no container,
 against [TheRock](https://github.com/ROCm/TheRock) ROCm 10.1 SDK (via
-[therock-sdk-nix](https://github.com/ewtodd/therock-sdk-nix)). It targets the R9700 (`gfx1201`) by default.
+[therock-sdk-nix](https://github.com/ewtodd/therock-sdk-nix)). The flake builds kernels for `gfx1201`
+only (the R9700); `mkRadiance`'s `gpuTargets` accepts other RDNA4 architectures, since `libr4d` is
+RDNA4-only.
 
 - **Host code:** built with the stdenv C++ compiler.
 - **Device kernels:** built with the SDK's clang, wrapped for NixOS headers.

@@ -39,6 +39,9 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "RAD_WITH_HIP" "ON")
     (lib.cmakeFeature "RAD_WITH_FFMPEG" "ON")
     (lib.cmakeFeature "RAD_GPU_TARGETS" (lib.concatStringsSep ";" gpuTargets))
+    # enable_language(HIP) probes the sandbox (rocm_agent_enumerator, no /dev/kfd) for the default
+    # architecture and dies without this; per-target HIP_ARCHITECTURES still overrides it.
+    (lib.cmakeFeature "CMAKE_HIP_ARCHITECTURES" (lib.concatStringsSep ";" gpuTargets))
     # find_program()/find_library() look only in /opt/rocm; the ROCm root (headers) is derived from
     # hipcc's location.
     (lib.cmakeFeature "RAD_HIPCC" "${rocmSdk}/bin/hipcc")
