@@ -105,3 +105,9 @@ The NixOS service that runs it lives in the host configuration, not here.
 4. Run `nix flake lock` and `nix build`.
 
 If the build breaks, check upstream's `Dockerfile` and `CMakeLists.txt` for new options or dependencies.
+
+### Patches
+
+`mkRadiance { patches = [ ... ]; }` applies patches to the upstream source. `patches/checkpoint-spill.patch`
+(exposed as `lib.x86_64-linux.patches.checkpointSpill`, built as `.#radiance-spill`) adds a disk tier for the
+checkpoint slots: `--checkpoint-dir DIR --disk-checkpoints N`. With neither flag the engine behaves as unpatched.

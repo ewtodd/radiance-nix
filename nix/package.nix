@@ -17,12 +17,13 @@
   rocmSdk,
   rocmSdkCc,
   gpuTargets,
+  patches ? [ ],
 }:
 
 stdenv.mkDerivation {
   pname = "radiance";
   version = "1.4.0-${srcRev}";
-  inherit src;
+  inherit src patches;
 
   nativeBuildInputs = [
     cmake
