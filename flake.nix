@@ -8,7 +8,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     radiance-src = {
-      url = "https://codeberg.org/StillDeadcode/radiance/archive/9ed3ef7a7b1b0580201e40682a464ed555bed8ff.tar.gz";
+      url = "https://codeberg.org/StillDeadcode/radiance/archive/19d4e8fe0e18071b9b6300f15fc4ccf38dc4fa3d.tar.gz";
       flake = false;
     };
   };
@@ -41,7 +41,8 @@
         pkgs.callPackage ./nix/package.nix {
           inherit rocmSdk rocmSdkCc gpuTargets patches;
           src = radiance-src;
-          srcRev = "9ed3ef7a7b1b0580201e40682a464ed555bed8ff";
+          srcRev = "19d4e8fe0e18071b9b6300f15fc4ccf38dc4fa3d";
+          version = "1.17.0";
         };
 
       pkgs = import nixpkgs {

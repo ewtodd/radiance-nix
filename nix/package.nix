@@ -14,6 +14,7 @@
   makeWrapper,
   src,
   srcRev,
+  version,
   rocmSdk,
   rocmSdkCc,
   gpuTargets,
@@ -22,7 +23,7 @@
 
 stdenv.mkDerivation {
   pname = "radiance";
-  version = "1.4.0-${srcRev}";
+  version = "${version}-${builtins.substring 0 7 srcRev}";
   inherit src patches;
 
   nativeBuildInputs = [

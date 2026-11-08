@@ -19,15 +19,15 @@
     "radiance-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1793394061,
-        "narHash": "sha256-SFKyQQYnuu+sGrS1nNnh2dfpsPsw/5CFW2tGBA+CqFw=",
-        "rev": "9ed3ef7a7b1b0580201e40682a464ed555bed8ff",
+        "lastModified": 1793815018,
+        "narHash": "sha256-D3FLOs38Rbxy2PDhfBJI94M+/oEG/Xx1ff8Xp2xuYJw=",
+        "rev": "19d4e8fe0e18071b9b6300f15fc4ccf38dc4fa3d",
         "type": "tarball",
-        "url": "https://codeberg.org/api/v1/repos/StillDeadcode/radiance/archive/9ed3ef7a7b1b0580201e40682a464ed555bed8ff.tar.gz"
+        "url": "https://codeberg.org/api/v1/repos/StillDeadcode/radiance/archive/19d4e8fe0e18071b9b6300f15fc4ccf38dc4fa3d.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://codeberg.org/StillDeadcode/radiance/archive/9ed3ef7a7b1b0580201e40682a464ed555bed8ff.tar.gz"
+        "url": "https://codeberg.org/StillDeadcode/radiance/archive/19d4e8fe0e18071b9b6300f15fc4ccf38dc4fa3d.tar.gz"
       }
     },
     "root": {

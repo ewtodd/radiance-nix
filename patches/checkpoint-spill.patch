@@ -1,4 +1,4 @@
-From 83d89d611b2d8bf6fbad9fd4edf25df642474312 Mon Sep 17 00:00:00 2001
+From 44b63751dddd5217af02d955df3eda1d7ed3e300 Mon Sep 17 00:00:00 2001
 From: Ethan Todd <noreply@anthropic.com>
 Date: Sun, 8 Nov 2026 12:46:27 -0600
 Subject: [PATCH] Checkpoint slots: a small disk tier (--checkpoint-dir,
@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 core/mem/ckspill.h
 
 diff --git a/core/config.cpp b/core/config.cpp
-index 178f5fd..8cc4d33 100644
+index 1c2de42..169a652 100644
 --- a/core/config.cpp
 +++ b/core/config.cpp
-@@ -176,6 +176,14 @@ static const Flag g_flags[] = {
+@@ -182,6 +182,14 @@ static const Flag g_flags[] = {
      "                                    --checkpoint-policy keeps for a --max-model-len session, plus\n"
      "                                    one, for each of --max-num-seqs, within an eighth of host\n"
      "                                    memory. N fixes the total; 0 keeps none" },
@@ -43,7 +43,7 @@ index 178f5fd..8cc4d33 100644
      { "--no-prefix-cache",    nullptr,  "disable prefix caching" },
      { "--prefix-resume",      "MODE",   "where a prefix hit resumes: exact (default) only where\n"
      "                                    an idle server's cold prefill of the prompt starts a\n"
-@@ -740,6 +748,8 @@ int config_parse(int argc, char** argv, Config* c) {
+@@ -768,6 +776,8 @@ int config_parse(int argc, char** argv, Config* c) {
                  return RAD_E_INVAL;
              }
          }
@@ -52,7 +52,7 @@ index 178f5fd..8cc4d33 100644
          else if (S("--no-prefix-cache"))       c->prefix_cache = false;
          else if (S("--prefix-resume")) {
              if (!(v = need(i))) return RAD_E_INVAL;
-@@ -1324,6 +1334,10 @@ const ShowRow kShow[] = {
+@@ -1395,6 +1405,10 @@ const ShowRow kShow[] = {
      { "--prefill-span",       [](const Config& c) { return num(c.prefill_span); } },
      { "--checkpoint-slots",   [](const Config& c) {
            return c.checkpoint_slots < 0 ? std::string("auto") : num(c.checkpoint_slots); } },
@@ -64,10 +64,10 @@ index 178f5fd..8cc4d33 100644
            return std::string(c.prefix_cache ? "not given: prefix caching on" : "prefix caching off"); } },
      { "--prefix-resume",      [](const Config& c) {
 diff --git a/core/engine.cpp b/core/engine.cpp
-index 1b916a3..6cd4a39 100644
+index e08a85f..04f2776 100644
 --- a/core/engine.cpp
 +++ b/core/engine.cpp
-@@ -2133,6 +2133,8 @@ std::string Engine::engine_info() const {
+@@ -2404,6 +2404,8 @@ std::string Engine::engine_info() const {
      e["prefix_cache"]           = cfg_.prefix_cache;
      e["control_vector"]         = nlohmann::ordered_json::parse(cvec_json());
      e["checkpoint_slots"]       = cfg_.checkpoint_slots;
@@ -77,7 +77,7 @@ index 1b916a3..6cd4a39 100644
  
      nlohmann::ordered_json devs = nlohmann::ordered_json::array();
 diff --git a/core/engine.h b/core/engine.h
-index 3db2956..2c24e64 100644
+index c913d1c..c19d7fa 100644
 --- a/core/engine.h
 +++ b/core/engine.h
 @@ -25,6 +25,7 @@
@@ -88,7 +88,7 @@ index 3db2956..2c24e64 100644
  #include "mem/hostarena.h"
  #include "runtime/ctx.h"   /* KVStageRun */
  #include "sched/mem_iface.h"
-@@ -586,6 +587,8 @@ private:
+@@ -594,6 +595,8 @@ private:
       * rank's shard of one snapshot (KVManager::set_checkpoint_store). Off the card because no
       * kernel reads a snapshot; it is only copied back into a sequence's state. */
      HostArena ck_store_;
@@ -98,10 +98,10 @@ index 3db2956..2c24e64 100644
      /* KL mode (core/kld.h), replacing run_server: submits the corpus documents as scoring
       * requests and hands every step's scored rows, copied to the host, to `kld_`. One pinned
 diff --git a/core/engine_bringup.cpp b/core/engine_bringup.cpp
-index c290455..3abd64e 100644
+index 3805b07..bbe3d1d 100644
 --- a/core/engine_bringup.cpp
 +++ b/core/engine_bringup.cpp
-@@ -34,6 +34,7 @@
+@@ -35,6 +35,7 @@
  #include "text/tokenizer.h"
  
  #include <sys/mman.h>
@@ -109,7 +109,7 @@ index c290455..3abd64e 100644
  #include <sys/resource.h>
  #include <unistd.h>
  
-@@ -3493,6 +3494,43 @@ int Engine::configure_kv() {
+@@ -3564,6 +3565,43 @@ int Engine::configure_kv() {
          RAD_TRY(r->prefix.configure(cfg_, &r->kv, geo_.checkpoint_interval));
      }
  
@@ -958,10 +958,10 @@ index a2c3531..92c5ef3 100644
      IdleTiers*  tiers_ = nullptr;
      bool        enabled_ = false;
 diff --git a/core/rad_core.h b/core/rad_core.h
-index 8edf84a..a4d0e09 100644
+index 7ffa9dc..d8729eb 100644
 --- a/core/rad_core.h
 +++ b/core/rad_core.h
-@@ -924,6 +924,10 @@ struct Config {
+@@ -948,6 +948,10 @@ struct Config {
       * trades host RAM for retained checkpoints. -1 is `auto`, resolved by the engine when the
       * store is opened (checkpoint_slots_auto in core/mem/prefix.h). */
      int64_t checkpoint_slots = -1;
@@ -973,10 +973,10 @@ index 8edf84a..a4d0e09 100644
      /* --prefix-resume exact|nearest.
       * - exact (the default): a prefix hit resumes only on the grid an idle server's cold prefill
 diff --git a/core/sched/mem_iface.h b/core/sched/mem_iface.h
-index af5cd25..bc629c3 100644
+index dfc8f1a..a3fe3f2 100644
 --- a/core/sched/mem_iface.h
 +++ b/core/sched/mem_iface.h
-@@ -169,6 +169,10 @@ struct IPrefixCache {
+@@ -175,6 +175,10 @@ struct IPrefixCache {
          (void)whole_only;
          return RestoreResult::Whole;
      }
@@ -987,7 +987,7 @@ index af5cd25..bc629c3 100644
      /* A step's admissions begin; the last step's lookup results have been consumed. */
      virtual void begin_step() {}
      /* Keep this waiting request's chain in VRAM until release(). Called when admission is refused
-@@ -445,6 +449,11 @@ struct PCBinding final : IPrefixCache {
+@@ -452,6 +456,11 @@ struct PCBinding final : IPrefixCache {
          return m->lookup(r.prompt, mm_, out, cap, r.id);
      }
  
@@ -1000,10 +1000,10 @@ index af5cd25..bc629c3 100644
      std::function<RestoreResult(const Request&, bool whole_only)> restore_fn;
      RestoreResult restore(const Request& r, bool whole_only) override {
 diff --git a/core/sched/scheduler.cpp b/core/sched/scheduler.cpp
-index bc5faf9..87ccb59 100644
+index cc1762e..e1e77c9 100644
 --- a/core/sched/scheduler.cpp
 +++ b/core/sched/scheduler.cpp
-@@ -1290,6 +1290,13 @@ int Scheduler::admit_one(SchedReq& s, int64_t budget, int64_t reserve) {
+@@ -1369,6 +1369,13 @@ int Scheduler::admit_one(SchedReq& s, int64_t budget, int64_t reserve) {
                        (unsigned long long)r.id, n_deferred_);
              return RAD_E_FULL;
          }
@@ -1049,10 +1049,10 @@ index 8213e2c..d738650 100644
                 "Admissions whose prefix hit was cut, by reason: reused nothing for want of a "
                 "snapshot at or below the hit, for a windowed group no window snapshot covers, or "
 diff --git a/tests/config_test.cpp b/tests/config_test.cpp
-index 1546eb3..79c7693 100644
+index 658e9ac..d30ed65 100644
 --- a/tests/config_test.cpp
 +++ b/tests/config_test.cpp
-@@ -465,6 +465,7 @@ const std::map<std::string, std::vector<std::string>>& legal_values() {
+@@ -519,6 +519,7 @@ const std::map<std::string, std::vector<std::string>>& legal_values() {
          { "--placement", { "all_vram" } }, { "--checkpoint-interval", { "256" } },
          { "--prefill-span", { "2" } },
          { "--checkpoint-slots", { "4" } }, { "--checkpoint-policy", { "tip-only" } },
@@ -1061,7 +1061,7 @@ index 1546eb3..79c7693 100644
          { "--num-speculative-tokens", { "2" } }, { "--spec-ngram", { "4" } },
          { "--spec-ngram-min", { "1" } }, { "--spec-ngram-max", { "6" } },
 diff --git a/tests/mem_test.cpp b/tests/mem_test.cpp
-index a53dc83..a6f767d 100644
+index c2af7fa..04193e5 100644
 --- a/tests/mem_test.cpp
 +++ b/tests/mem_test.cpp
 @@ -25,6 +25,11 @@
@@ -1076,7 +1076,7 @@ index a53dc83..a6f767d 100644
  #include <cstdio>
  #include <cstdlib>
  #include <cstring>
-@@ -8109,3 +8114,91 @@ TEST(a_streamed_op_exists_only_for_a_capable_architecture_and_a_ring) {
+@@ -8204,3 +8209,91 @@ TEST(a_streamed_op_exists_only_for_a_capable_architecture_and_a_ring) {
      CHECK(!kvstream_op_gated(ctx, "kv_store"));
      CHECK(!kvstream_op_gated(ctx, "attn_paged"));
  }
