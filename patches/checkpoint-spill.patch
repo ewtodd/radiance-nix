@@ -1,4 +1,4 @@
-From 44b63751dddd5217af02d955df3eda1d7ed3e300 Mon Sep 17 00:00:00 2001
+From 7fa51bf9a3f81ce81e892dc0f6f64523785197f2 Mon Sep 17 00:00:00 2001
 From: Ethan Todd <noreply@anthropic.com>
 Date: Sun, 8 Nov 2026 12:46:27 -0600
 Subject: [PATCH] Checkpoint slots: a small disk tier (--checkpoint-dir,
@@ -9,18 +9,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  core/config.cpp          |  14 ++
  core/engine.cpp          |   2 +
  core/engine.h            |   3 +
- core/engine_bringup.cpp  |  38 +++++
- core/mem/ckspill.cpp     | 237 +++++++++++++++++++++++++++++++
+ core/engine_bringup.cpp  |  46 ++++++
+ core/mem/ckspill.cpp     | 237 +++++++++++++++++++++++++++++
  core/mem/ckspill.h       | 102 +++++++++++++
- core/mem/prefix.cpp      | 300 ++++++++++++++++++++++++++++++++++++++-
- core/mem/prefix.h        |  56 +++++++-
+ core/mem/prefix.cpp      | 320 ++++++++++++++++++++++++++++++++++++++-
+ core/mem/prefix.h        |  65 +++++++-
  core/rad_core.h          |   4 +
  core/sched/mem_iface.h   |   9 ++
  core/sched/scheduler.cpp |   7 +
  core/server/metrics.cpp  |  14 ++
  tests/config_test.cpp    |   1 +
  tests/mem_test.cpp       |  93 ++++++++++++
- 14 files changed, 875 insertions(+), 5 deletions(-)
+ 14 files changed, 912 insertions(+), 5 deletions(-)
  create mode 100644 core/mem/ckspill.cpp
  create mode 100644 core/mem/ckspill.h
 
@@ -98,7 +98,7 @@ index c913d1c..c19d7fa 100644
      /* KL mode (core/kld.h), replacing run_server: submits the corpus documents as scoring
       * requests and hands every step's scored rows, copied to the host, to `kld_`. One pinned
 diff --git a/core/engine_bringup.cpp b/core/engine_bringup.cpp
-index 3805b07..bbe3d1d 100644
+index 3805b07..dd5b012 100644
 --- a/core/engine_bringup.cpp
 +++ b/core/engine_bringup.cpp
 @@ -35,6 +35,7 @@
@@ -109,7 +109,7 @@ index 3805b07..bbe3d1d 100644
  #include <sys/resource.h>
  #include <unistd.h>
  
-@@ -3564,6 +3565,43 @@ int Engine::configure_kv() {
+@@ -3564,6 +3565,51 @@ int Engine::configure_kv() {
          RAD_TRY(r->prefix.configure(cfg_, &r->kv, geo_.checkpoint_interval));
      }
  
@@ -136,6 +136,14 @@ index 3805b07..bbe3d1d 100644
 +            if (spill->open(cfg_.checkpoint_dir, (int)std::min<int64_t>(cfg_.disk_checkpoints, INT32_MAX),
 +                            ck_store_.slot_bytes(), CkptSpill::checksum(fp.data(), fp.size()), &err)) {
 +                pc.set_spill(spill.get(), &ck_store_);
++                /* Under the scheduler's lock, on the engine thread: the saves are on the ranks' streams. */
++                pc.set_sync_saves([this] {
++                    for (auto& rk : ranks_) {
++                        if (ranks_.size() > 1) (void)rad_dev_set(rk->device);
++                        (void)rad_stream_sync(rk->ctx.stream());
++                    }
++                    if (ranks_.size() > 1) (void)rad_dev_set(ranks_[0]->device);
++                });
 +                if (pc.spill_on()) {
 +                    RAD_INFO("checkpoint disk tier: %lld slots of %s in %s (%s), snapshots are written back "
 +                             "as the %lld in memory are evicted", (long long)cfg_.disk_checkpoints,
@@ -505,10 +513,18 @@ index 0000000..f8e2e01
 +
 +}  /* namespace rad */
 diff --git a/core/mem/prefix.cpp b/core/mem/prefix.cpp
-index f2810f1..5422c85 100644
+index f2810f1..fb82c5c 100644
 --- a/core/mem/prefix.cpp
 +++ b/core/mem/prefix.cpp
-@@ -868,6 +868,10 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
+@@ -4,6 +4,7 @@
+ #include "mem/kvtier.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <cstring>
+ #include <numeric>
+ #include <unordered_set>
+@@ -868,6 +869,10 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
      }
      auto existing = ck_by_prefix_.find(prefix);
      if (existing != ck_by_prefix_.end()) {
@@ -519,7 +535,7 @@ index f2810f1..5422c85 100644
          existing->second.used = ++clock_;
          existing->second.used_ns = rad_mono_ns();
          /* Another session's snapshot, this step's save target: retention run by a later
-@@ -887,6 +891,13 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
+@@ -887,6 +892,13 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
          for (const auto& s : ck_by_session_) sessions.push_back(s.first);
          for (uint64_t s : sessions) retain(s);
          if (kv_->alloc_checkpoint(&slot) < 0) {
@@ -533,7 +549,7 @@ index f2810f1..5422c85 100644
              /* Evict the least recently used snapshot, where a use is its reservation or a lookup
               * resuming from it, and never one handed out or reserved this step (its admission
               * restores from the slot ahead of the step; the save lands in it after). A tip gets
-@@ -895,7 +906,7 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
+@@ -895,7 +907,7 @@ int PrefixCache::reserve_checkpoint(uint64_t session, int64_t pos, const BlockHa
               * the anchor every turn resumes from is used each turn. */
              const Ckpt* victim = nullptr;
              for (const auto& kvp : ck_by_prefix_) {
@@ -542,7 +558,7 @@ index f2810f1..5422c85 100644
                  if (!victim || kvp.second.used < victim->used) victim = &kvp.second;
              }
              if (!victim) {
-@@ -952,7 +963,16 @@ void PrefixCache::retire_ckpt(std::unordered_map<BlockHash, Ckpt, BlockHashHash>
+@@ -952,7 +964,16 @@ void PrefixCache::retire_ckpt(std::unordered_map<BlockHash, Ckpt, BlockHashHash>
      if (it == ck_by_prefix_.end()) return;
      /* The tiers record the slot for the session view and must stop naming it before it is reused. */
      if (tiers_) tiers_->release_snapshot(it->first);
@@ -560,7 +576,7 @@ index f2810f1..5422c85 100644
      ck_by_prefix_.erase(it);
  }
  
-@@ -1046,7 +1066,7 @@ int64_t PrefixCache::expire(uint64_t now_ns, uint64_t ttl_ns) {
+@@ -1046,7 +1067,7 @@ int64_t PrefixCache::expire(uint64_t now_ns, uint64_t ttl_ns) {
      std::vector<BlockHash> gone;
      for (const auto& kvp : ck_by_prefix_) {
          const Ckpt& c = kvp.second;
@@ -569,7 +585,7 @@ index f2810f1..5422c85 100644
          auto e = map_.find(kvp.first);
          const uint64_t used = std::max(c.used_ns, e == map_.end() ? 0 : e->second.used_ns);
          if (used < cutoff) gone.push_back(kvp.first);
-@@ -1125,7 +1145,8 @@ int PrefixCache::release_session(const std::string& label, uint64_t id, int64_t
+@@ -1125,7 +1146,8 @@ int PrefixCache::release_session(const std::string& label, uint64_t id, int64_t
                  ++out->entries;
              }
              auto ck = ck_by_prefix_.find(h);
@@ -579,7 +595,7 @@ index f2810f1..5422c85 100644
                  const uint64_t session = ck->second.session;
                  retire_ckpt(ck);
                  unindex_ckpt(session, h);
-@@ -1140,4 +1161,275 @@ int PrefixCache::release_session(const std::string& label, uint64_t id, int64_t
+@@ -1140,4 +1162,294 @@ int PrefixCache::release_session(const std::string& label, uint64_t id, int64_t
      stats_.ckpt_released += out->snapshots;
      return RAD_OK;
  }
@@ -598,6 +614,7 @@ index f2810f1..5422c85 100644
 +void PrefixCache::set_spill(CkptSpill* spill, HostArena* store) {
 +    spill_ = spill;
 +    store_ = store;
++    spill_debug_ = std::getenv("RADIANCE_CKPT_SPILL_DEBUG") != nullptr;
 +    spill_dead_ = false;
 +    ios_.clear();
 +    writes_out_ = reads_out_ = 0;
@@ -711,6 +728,11 @@ index f2810f1..5422c85 100644
 +            c->used = ++clock_;
 +            c->used_ns = rad_mono_ns();
 +            c->pin = step_ + kSpillPinSteps;
++            if (spill_debug_)
++                RAD_INFO("checkpoint spill debug: read disk %d -> slot %d, %lld tokens, session %llu, key %016llx%016llx, hash %016llx",
++                         (int)rec.disk, (int)c->slot, (long long)c->pos, (unsigned long long)c->session,
++                         (unsigned long long)c->prefix.hi, (unsigned long long)c->prefix.lo,
++                         (unsigned long long)CkptSpill::checksum(store_->at(c->slot), (size_t)store_->slot_bytes()));
 +            if (tiers_) tiers_->note_snapshot(c->prefix, c->slot, c->pos);
 +            RAD_INFO("checkpoint disk tier: read the %lld-token snapshot of session %llu back from "
 +                     "disk slot %d (%.0f ms, %.1f MiB)", (long long)c->pos,
@@ -774,6 +796,7 @@ index f2810f1..5422c85 100644
 + * recently used checkpoint nothing needs this step goes to disk, or, with its disk copy still
 + * there from an earlier read, simply loses its memory. */
 +void PrefixCache::spill_pump() {
++    bool synced = false;
 +    while (kv_->free_checkpoint_slots() + writes_out_ < kSpillFree) {
 +        Ckpt* v = nullptr;
 +        for (auto& kvp : ck_by_prefix_) {
@@ -790,6 +813,18 @@ index f2810f1..5422c85 100644
 +        }
 +        const int d = take_disk_slot();
 +        if (d < 0) return;
++        /* The save into this slot must have landed before the I/O thread reads it. */
++        uint64_t before = 0;
++        if (spill_debug_) before = CkptSpill::checksum(store_->at(v->slot), (size_t)store_->slot_bytes());
++        if (!synced && sync_saves_) { sync_saves_(); synced = true; }
++        if (spill_debug_) {
++            const uint64_t after = CkptSpill::checksum(store_->at(v->slot), (size_t)store_->slot_bytes());
++            RAD_INFO("checkpoint spill debug: write slot %d -> disk %d, %lld tokens, session %llu, key %016llx%016llx, "
++                     "hash %016llx before the save sync, %016llx after%s", (int)v->slot, d, (long long)v->pos,
++                     (unsigned long long)v->session, (unsigned long long)v->prefix.hi,
++                     (unsigned long long)v->prefix.lo, (unsigned long long)before, (unsigned long long)after,
++                     before == after ? "" : "  <-- the save had NOT landed");
++        }
 +        const uint64_t id = spill_->write(store_->at(v->slot), d, v->prefix.hi, v->prefix.lo, v->pos);
 +        v->io = id;
 +        v->io_write = true;
@@ -856,10 +891,10 @@ index f2810f1..5422c85 100644
 +
  }  /* namespace rad */
 diff --git a/core/mem/prefix.h b/core/mem/prefix.h
-index a2c3531..92c5ef3 100644
+index a2c3531..cb00f6e 100644
 --- a/core/mem/prefix.h
 +++ b/core/mem/prefix.h
-@@ -41,6 +41,8 @@
+@@ -41,11 +41,14 @@
   * reusable prefix is already gone.
   */
  #pragma once
@@ -868,7 +903,13 @@ index a2c3531..92c5ef3 100644
  #include "mem/kv.h"
  #include "rad_core.h"
  
-@@ -379,7 +381,7 @@ public:
+ #include <algorithm>
+ #include <cstdint>
++#include <functional>
+ #include <list>
+ #include <memory>
+ #include <string>
+@@ -379,7 +382,7 @@ public:
       * read by its forward by now, and the ones it reserved have been saved into (the engine
       * issues the save before the next step is planned); until this call they keep their slots
       * against retention, reserve_checkpoint's eviction and expiry. */
@@ -877,7 +918,7 @@ index a2c3531..92c5ef3 100644
  
      /* ---------------- expiry ----------------
       *
-@@ -424,6 +426,24 @@ public:
+@@ -424,6 +427,30 @@ public:
                              int32_t* slot_out);
      /* The state for `prefix` is now in its slot; lookup() offers it only after this (Ckpt::valid). */
      void commit_checkpoint(const BlockHash& prefix);
@@ -893,6 +934,12 @@ index a2c3531..92c5ef3 100644
 +     * and collected at the start of each step. An error turns the tier off. */
 +    void set_spill(CkptSpill* spill, HostArena* store);
 +    bool spill_on() const { return spill_ && !spill_dead_; }
++    /* Waits until every checkpoint save issued so far has landed in host memory on every rank. A
++     * snapshot is committed when its step is collected, but the copy of a rank whose stream the
++     * collection does not wait for may still be running; the spill thread reads host memory
++     * directly and, unlike a restore, is not ordered behind the copy by a stream. The engine
++     * installs this; null where saves are synchronous (tests). */
++    void set_sync_saves(std::function<void()> f) { sync_saves_ = std::move(f); }
 +    /* True while the prompt's deepest checkpoint is on the disk (a read is started or in flight),
 +     * or while a spill is making the room its own checkpoint will need: the request waits for a
 +     * later step. False when it can be looked up as it is. */
@@ -902,7 +949,7 @@ index a2c3531..92c5ef3 100644
      /* Every checkpoint of a session, ascending. */
      std::vector<int64_t> checkpoints(uint64_t session) const;
      /* Apply the retention policy to one session now, keeping also what a lookup resumed from
-@@ -450,6 +470,9 @@ public:
+@@ -450,6 +477,9 @@ public:
          int64_t expired = 0, ckpt_expired = 0;
          /* Entries and snapshots a client released (release_session). */
          int64_t released = 0, ckpt_released = 0;
@@ -912,7 +959,7 @@ index a2c3531..92c5ef3 100644
      };
      const Stats& stats() const { return stats_; }
  
-@@ -483,6 +506,18 @@ private:
+@@ -483,6 +513,18 @@ private:
           * planned and the copy after the step that computes it; in between the slot still holds
           * the previous tenant's state and must not be handed out. */
          bool      valid = false;
@@ -931,7 +978,7 @@ index a2c3531..92c5ef3 100644
      };
  
      std::vector<BlockHash> chain_all(const std::vector<int32_t>& tokens,
-@@ -524,6 +559,25 @@ private:
+@@ -524,6 +566,27 @@ private:
      deepest_ckpt(const std::vector<BlockHash>& hs, int64_t limit) const;
      static double idle_s(uint64_t used_ns);
  
@@ -947,6 +994,8 @@ index a2c3531..92c5ef3 100644
 +    void drop_disk_copy(Ckpt& c);
 +    void drop_memory(Ckpt& c);
 +    CkptSpill* spill_ = nullptr;
++    std::function<void()> sync_saves_;
++    bool spill_debug_ = false;     /* RADIANCE_CKPT_SPILL_DEBUG: hashes and ids of every spill and read */
 +    HostArena* store_ = nullptr;
 +    bool spill_dead_ = false;
 +    std::vector<DiskSlot> disk_;
